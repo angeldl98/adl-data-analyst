@@ -9,7 +9,7 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "plugins/**/*"],
   "exclude": ["node_modules", "dist"]
 }
 
