@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { closeClient } from "./db";
-import { buildPharmaSearchIndex } from "../plugins/pharma";
+import { buildPharmaSearchIndex } from "./plugins/pharma";
 
 async function main() {
   try {

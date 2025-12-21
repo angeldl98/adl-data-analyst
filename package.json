@@ -2,10 +2,10 @@
   "name": "adl-data-analyst",
   "version": "0.1.0",
   "private": true,
-  "main": "dist/main.js",
+  "main": "dist/src/main.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/main.js"
+    "start": "node dist/src/main.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

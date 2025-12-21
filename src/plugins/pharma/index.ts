@@ -1,4 +1,4 @@
-import { getClient } from "../../src/db";
+import { getClient } from "../../db";
 
 export async function buildPharmaSearchIndex(): Promise<void> {
   const client = await getClient();
