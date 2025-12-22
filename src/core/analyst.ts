@@ -1,5 +1,5 @@
 import { PluginRegistry } from "./registry";
-import type { AnalystConfig } from "./config";
+import type { AnalystConfig, AnomalyConfig } from "./config";
 import { logError, logInfo } from "./observability";
 import type { AnalystPlugin, PluginRunContext } from "./plugin";
 import { getClient } from "../db";
@@ -9,6 +9,18 @@ import { ANALYST_VERSION } from "./version";
 import { detectGenericAnomalies, persistAnomaly } from "./anomalies";
 import { readAnomalyConfig } from "./config";
 
+/**
+ * Single orchestrator path:
+ * 1) resolve plugin
+ * 2) acquire lock
+ * 3) record run start
+ * 4) execute plugin.materialize
+ * 5) detect/persist anomalies (does not fail the run)
+ * 6) record run end
+ * 7) release lock
+ *
+ * Exit codes: 0 success, 2 bad args, 3 lock not acquired, 4 execution failure.
+ */
 export async function runAnalyst(config: AnalystConfig, registry: PluginRegistry): Promise<number> {
   const plugin: AnalystPlugin | undefined = registry.get(config.plugin);
   if (!plugin) {
@@ -16,23 +28,24 @@ export async function runAnalyst(config: AnalystConfig, registry: PluginRegistry
     return 2; // exit code 2 for unknown plugin / bad args
   }
 
-  const schema = config.plugin === "pharma" ? "pharma_meta" : `${config.plugin}_meta`;
+  const schema = plugin.metaSchema;
   const lockKey = `analyst:${plugin.name}`;
   const client = await getClient();
   let runId: string | null = null;
+  let anomalyCfg: AnomalyConfig;
 
   try {
     const locked = await acquireLock(client, lockKey, schema);
     if (!locked) return 3; // lock not acquired
 
-    const run = await startRun(client, schema, plugin.name, ANALYST_VERSION);
+    const run = await startRun(client, schema, `${plugin.name}@${plugin.version}`, ANALYST_VERSION);
     runId = run.runId;
 
     const ctx: PluginRunContext = { client, metaSchema: schema, runId };
-    const result = await plugin.run(ctx);
+    const result = await plugin.materialize(ctx);
 
     // Anomaly detection (does not fail the run)
-    const anomalyCfg = readAnomalyConfig();
+    anomalyCfg = readAnomalyConfig();
     const anomalies = await detectGenericAnomalies(
       client,
       schema,

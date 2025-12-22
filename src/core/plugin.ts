@@ -14,5 +14,7 @@ export type PluginRunContext = {
 
 export interface AnalystPlugin {
   name: string;
-  run(ctx: PluginRunContext): Promise<PluginResult>;
+  version: string;
+  metaSchema: string;
+  materialize(ctx: PluginRunContext): Promise<PluginResult>;
 }
