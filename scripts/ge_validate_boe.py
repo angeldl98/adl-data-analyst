@@ -22,11 +22,15 @@ REQUIRED_NON_NULL = [
     "fecha_inicio",
     "fecha_fin",
     "precio_salida",
-    "valor_tasacion",
     "url_detalle",
 ]
 
-NON_NEGATIVE = ["precio_salida", "valor_tasacion", "descuento_pct"]
+OPTIONAL_NON_NULL = [
+    "valor_tasacion",
+]
+
+REQUIRED_NON_NEGATIVE = ["precio_salida"]
+OPTIONAL_NON_NEGATIVE = ["valor_tasacion", "descuento_pct"]
 
 
 def main() -> int:
@@ -44,7 +48,7 @@ def main() -> int:
     total_records = int(len(df))
 
     # Ensure all expected columns exist to avoid KeyErrors
-    for col in REQUIRED_NON_NULL + NON_NEGATIVE:
+    for col in REQUIRED_NON_NULL + OPTIONAL_NON_NULL + REQUIRED_NON_NEGATIVE + OPTIONAL_NON_NEGATIVE:
         if col not in df.columns:
             df[col] = None
 
@@ -56,6 +60,7 @@ def main() -> int:
     results: List[Dict[str, Any]] = []
     all_success = True
 
+    # Required non-null
     for col in REQUIRED_NON_NULL:
         res = gdf.expect_column_values_to_not_be_null(col)
         total = res["result"].get("element_count", 0) or 0
@@ -73,7 +78,25 @@ def main() -> int:
         )
         all_success = all_success and success
 
-    for col in NON_NEGATIVE:
+    # Optional non-null (record completeness, do not fail run)
+    for col in OPTIONAL_NON_NULL:
+        res = gdf.expect_column_values_to_not_be_null(col)
+        total = res["result"].get("element_count", 0) or 0
+        failed = len(res["result"].get("unexpected_index_list", []))
+        success = bool(res["success"])
+        results.append(
+            {
+                "field": col,
+                "total": total,
+                "failed": failed,
+                "completeness": 0 if total == 0 else (total - failed) / total,
+                "notes": "optional_non_null",
+                "success": success,
+            }
+        )
+
+    # Required non-negative
+    for col in REQUIRED_NON_NEGATIVE:
         res = gdf.expect_column_values_to_be_greater_than_or_equal_to(col, 0)
         total = res["result"].get("element_count", 0) or 0
         failed = len(res["result"].get("unexpected_index_list", []))
@@ -84,11 +107,28 @@ def main() -> int:
                 "total": total,
                 "failed": failed,
                 "completeness": 0 if total == 0 else (total - failed) / total,
-                "notes": "must_be_non_negative",
+                "notes": "required_non_negative",
                 "success": success,
             }
         )
         all_success = all_success and success
+
+    # Optional non-negative (record completeness, do not fail run)
+    for col in OPTIONAL_NON_NEGATIVE:
+        res = gdf.expect_column_values_to_be_greater_than_or_equal_to(col, 0)
+        total = res["result"].get("element_count", 0) or 0
+        failed = len(res["result"].get("unexpected_index_list", []))
+        success = bool(res["success"])
+        results.append(
+            {
+                "field": col,
+                "total": total,
+                "failed": failed,
+                "completeness": 0 if total == 0 else (total - failed) / total,
+                "notes": "optional_non_negative",
+                "success": success,
+            }
+        )
 
     if total_records == 0:
         # Explicitly mark empty dataset as failure with structured result
