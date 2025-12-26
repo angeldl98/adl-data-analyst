@@ -10,7 +10,6 @@ import logging
 from typing import Any, Dict, List
 
 import pandas as pd
-import great_expectations as ge
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
@@ -52,20 +51,14 @@ def main() -> int:
         if col not in df.columns:
             df[col] = None
 
-    try:
-        gdf = ge.from_pandas(df)
-    except Exception as exc:
-        return emit({"success": False, "results": [], "total_records": total_records, "error": f"ge_init:{exc}"}, 1)
-
     results: List[Dict[str, Any]] = []
-    all_success = True
+    all_success = total_records > 0
 
     # Required non-null
     for col in REQUIRED_NON_NULL:
-        res = gdf.expect_column_values_to_not_be_null(col)
-        total = res["result"].get("element_count", 0) or 0
-        failed = len(res["result"].get("unexpected_index_list", []))
-        success = bool(res["success"])
+        total = total_records
+        failed = int(df[col].isnull().sum())
+        success = failed == 0 and total > 0
         results.append(
             {
                 "field": col,
@@ -80,10 +73,9 @@ def main() -> int:
 
     # Optional non-null (record completeness, do not fail run)
     for col in OPTIONAL_NON_NULL:
-        res = gdf.expect_column_values_to_not_be_null(col)
-        total = res["result"].get("element_count", 0) or 0
-        failed = len(res["result"].get("unexpected_index_list", []))
-        success = bool(res["success"])
+        total = total_records
+        failed = int(df[col].isnull().sum())
+        success = failed == 0 and total > 0
         results.append(
             {
                 "field": col,
@@ -97,10 +89,10 @@ def main() -> int:
 
     # Required non-negative
     for col in REQUIRED_NON_NEGATIVE:
-        res = gdf.expect_column_values_to_be_greater_than_or_equal_to(col, 0)
-        total = res["result"].get("element_count", 0) or 0
-        failed = len(res["result"].get("unexpected_index_list", []))
-        success = bool(res["success"])
+        series = df[col].dropna()
+        total = int(len(series))
+        failed = int((series.astype(float) < 0).sum())
+        success = failed == 0 and total > 0
         results.append(
             {
                 "field": col,
@@ -115,10 +107,10 @@ def main() -> int:
 
     # Optional non-negative (record completeness, do not fail run)
     for col in OPTIONAL_NON_NEGATIVE:
-        res = gdf.expect_column_values_to_be_greater_than_or_equal_to(col, 0)
-        total = res["result"].get("element_count", 0) or 0
-        failed = len(res["result"].get("unexpected_index_list", []))
-        success = bool(res["success"])
+        series = df[col].dropna()
+        total = int(len(series))
+        failed = int((series.astype(float) < 0).sum())
+        success = failed == 0 and total > 0
         results.append(
             {
                 "field": col,
