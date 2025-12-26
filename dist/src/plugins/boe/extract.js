@@ -2,6 +2,14 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.extractSignals = extractSignals;
 const schema_1 = require("./schema");
+function toNumber(val) {
+    if (val === null || val === undefined)
+        return null;
+    const n = typeof val === "number" ? val : Number(val);
+    if (Number.isFinite(n))
+        return n;
+    return null;
+}
 async function extractSignals(client) {
     const normRes = await client.query(`
       SELECT
@@ -10,14 +18,14 @@ async function extractSignals(client) {
         identificador AS identificador_norm,
         tipo_subasta,
         estado AS estado_subasta,
-        NULL::date AS fecha_inicio,
-        NULL::date AS fecha_fin,
+        fecha_inicio,
+        fecha_fin,
         NULL::text AS direccion_texto,
         municipio,
         provincia,
         NULL::text AS codigo_postal,
-        NULL::numeric AS precio_salida,
-        NULL::numeric AS valor_tasacion,
+        precio_salida,
+        tasacion AS valor_tasacion,
         valor_subasta,
         tasacion,
         importe_deposito,
@@ -41,6 +49,8 @@ async function extractSignals(client) {
         const ident = row.identificador_norm || row.identificador || row.boe_uid || null;
         return {
             ...row,
+            precio_salida: toNumber(row.precio_salida ?? row.valor_subasta),
+            valor_tasacion: toNumber(row.valor_tasacion ?? row.tasacion),
             identificador: ident,
             pdf_texts: docsByIdent.get(ident || "") || []
         };

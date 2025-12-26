@@ -19,8 +19,8 @@ async function materializeProduct(client, metaSchema, runId, rows) {
     let errors = 0;
     await client.query("BEGIN");
     try {
+        await client.query(`CREATE SCHEMA IF NOT EXISTS boe_prod`);
         await client.query(`
-        CREATE SCHEMA IF NOT EXISTS boe_prod;
         CREATE TABLE IF NOT EXISTS ${schema_1.BOE_PROD_TABLE} (
           subasta_id INT PRIMARY KEY,
           boe_uid TEXT,
