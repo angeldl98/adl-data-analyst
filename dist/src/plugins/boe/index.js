@@ -27,9 +27,13 @@ exports.BoePlugin = {
         if (ready.length === 0) {
             throw new Error("quality_fail: no PRO-ready rows after filtering required fields");
         }
-        await (0, quality_1.evaluateQuality)(ctx.client, ctx.metaSchema, ctx.runId, ready);
-        const { processed, errors } = await (0, materialize_1.materializeProduct)(ctx.client, ctx.metaSchema, ctx.runId, ready);
-        const { summaryCount } = await (0, summarize_1.summarize)(ctx.client, ctx.metaSchema, ctx.runId, ready);
+        const active = ready.filter((row) => row.estado_subasta === "ACTIVA");
+        if (active.length === 0) {
+            throw new Error("quality_fail: no active auctions to publish");
+        }
+        await (0, quality_1.evaluateQuality)(ctx.client, ctx.metaSchema, ctx.runId, active);
+        const { processed, errors } = await (0, materialize_1.materializeProduct)(ctx.client, ctx.metaSchema, ctx.runId, active);
+        const { summaryCount } = await (0, summarize_1.summarize)(ctx.client, ctx.metaSchema, ctx.runId, active);
         return { processed, errors, notes: `summaries=${summaryCount}` };
     }
 };

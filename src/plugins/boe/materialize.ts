@@ -16,6 +16,51 @@ function excerptRow(row: BoeCalculated): string {
   }
 }
 
+async function ensureDocsTable(client: Client): Promise<void> {
+  await client.query(`CREATE SCHEMA IF NOT EXISTS boe_prod`);
+  await client.query(
+    `
+      CREATE TABLE IF NOT EXISTS boe_prod.subastas_docs (
+        identificador TEXT NOT NULL,
+        url TEXT NOT NULL,
+        tipo_doc TEXT,
+        local_path TEXT,
+        extracted_text TEXT,
+        PRIMARY KEY (identificador, url)
+      )
+    `
+  );
+}
+
+async function publishDocs(client: Client, rows: BoeCalculated[]): Promise<void> {
+  const idents = Array.from(
+    new Set(
+      rows
+        .map((r) => r.identificador)
+        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    )
+  );
+  if (idents.length === 0) return;
+
+  const pdfs = await client.query<{ boe_uid: string; file_path: string }>(
+    `SELECT boe_uid, file_path FROM boe_subastas_pdfs WHERE boe_uid = ANY($1)`,
+    [idents]
+  );
+  if (!pdfs.rowCount) return;
+
+  await ensureDocsTable(client);
+  for (const pdf of pdfs.rows) {
+    await client.query(
+      `
+        INSERT INTO boe_prod.subastas_docs (identificador, url, tipo_doc, local_path)
+        VALUES ($1, $2, 'edict_pdf', $2)
+        ON CONFLICT (identificador, url) DO NOTHING
+      `,
+      [pdf.boe_uid, pdf.file_path]
+    );
+  }
+}
+
 export async function materializeProduct(
   client: Client,
   metaSchema: string,
@@ -128,6 +173,7 @@ export async function materializeProduct(
       processed += 1;
     }
 
+    await publishDocs(client, rows);
     await client.query("COMMIT");
     return { processed, errors };
   } catch (err) {
