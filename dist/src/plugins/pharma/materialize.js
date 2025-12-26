@@ -6,7 +6,7 @@ const schema_1 = require("./schema");
 function isValid(row) {
     if (row.raw_id === null || row.raw_id === undefined)
         return false;
-    if (row.nombre === null || row.nombre === undefined || row.nombre.trim() === "")
+    if (!row.nombre || row.nombre.trim() === "")
         return false;
     return true;
 }
@@ -18,24 +18,46 @@ function excerptRow(row) {
         return "";
     }
 }
+async function createTables(client) {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema_1.PHARMA_PROD_SCHEMA}`);
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema_1.PHARMA_HIST_SCHEMA}`);
+    const createTableSql = (schema) => `
+    CREATE TABLE IF NOT EXISTS ${schema}.farmacias (
+      raw_id INT PRIMARY KEY,
+      nombre TEXT,
+      direccion TEXT,
+      municipio TEXT,
+      provincia TEXT,
+      estado TEXT,
+      checksum TEXT,
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )
+  `;
+    await client.query(createTableSql(schema_1.PHARMA_PROD_SCHEMA));
+    await client.query(createTableSql(schema_1.PHARMA_HIST_SCHEMA));
+}
+async function upsertFarmacia(client, schema, row) {
+    await client.query(`
+      INSERT INTO ${schema}.farmacias (raw_id, nombre, direccion, municipio, provincia, estado, checksum, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+      ON CONFLICT (raw_id) DO UPDATE SET
+        nombre = EXCLUDED.nombre,
+        direccion = EXCLUDED.direccion,
+        municipio = EXCLUDED.municipio,
+        provincia = EXCLUDED.provincia,
+        estado = EXCLUDED.estado,
+        checksum = EXCLUDED.checksum,
+        updated_at = now()
+    `, [row.raw_id, row.nombre, row.direccion, row.municipio, row.provincia, row.estado_norm, row.checksum]);
+}
 async function materializeSearchIndex(client, metaSchema, runId, rows) {
     let processed = 0;
     let errors = 0;
     await client.query("BEGIN");
     try {
-        await client.query(`
-        CREATE TABLE IF NOT EXISTS ${schema_1.PHARMA_SEARCH_INDEX_TABLE} (
-          raw_id INT PRIMARY KEY,
-          nombre TEXT,
-          codigo_nacional TEXT,
-          laboratorio TEXT,
-          estado TEXT,
-          presentacion TEXT,
-          url TEXT,
-          checksum TEXT,
-          updated_at TIMESTAMPTZ DEFAULT now()
-        )
-      `);
+        await createTables(client);
+        const activeIds = new Set();
+        const histIds = new Set();
         for (const row of rows) {
             if (!isValid(row)) {
                 errors += 1;
@@ -47,29 +69,24 @@ async function materializeSearchIndex(client, metaSchema, runId, rows) {
                 });
                 continue;
             }
-            await client.query(`
-          INSERT INTO ${schema_1.PHARMA_SEARCH_INDEX_TABLE} (raw_id, nombre, codigo_nacional, laboratorio, estado, presentacion, url, checksum, updated_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
-          ON CONFLICT (raw_id) DO UPDATE SET
-            nombre = EXCLUDED.nombre,
-            codigo_nacional = EXCLUDED.codigo_nacional,
-            laboratorio = EXCLUDED.laboratorio,
-            estado = EXCLUDED.estado,
-            presentacion = EXCLUDED.presentacion,
-            url = EXCLUDED.url,
-            checksum = EXCLUDED.checksum,
-            updated_at = now()
-        `, [
-                row.raw_id,
-                row.nombre,
-                row.codigo_nacional,
-                row.laboratorio,
-                row.estado,
-                row.presentacion,
-                row.url,
-                row.checksum
-            ]);
+            const targetSchema = row.estado_norm === "ACTIVA" ? schema_1.PHARMA_PROD_SCHEMA : schema_1.PHARMA_HIST_SCHEMA;
+            await upsertFarmacia(client, targetSchema, row);
             processed += 1;
+            if (targetSchema === schema_1.PHARMA_PROD_SCHEMA)
+                activeIds.add(row.raw_id);
+            else
+                histIds.add(row.raw_id);
+        }
+        // Transiciones: mover fuera de prod si ya no están activos
+        if (activeIds.size > 0) {
+            await client.query(`DELETE FROM ${schema_1.PHARMA_PROD_SCHEMA}.farmacias WHERE raw_id NOT IN (${Array.from(activeIds).join(",")})`);
+        }
+        else {
+            await client.query(`TRUNCATE TABLE ${schema_1.PHARMA_PROD_SCHEMA}.farmacias`);
+        }
+        // Limpia hist duplicados de activos
+        if (activeIds.size > 0) {
+            await client.query(`DELETE FROM ${schema_1.PHARMA_HIST_SCHEMA}.farmacias WHERE raw_id IN (${Array.from(activeIds).join(",")})`);
         }
         await client.query("COMMIT");
         return { processed, errors };
