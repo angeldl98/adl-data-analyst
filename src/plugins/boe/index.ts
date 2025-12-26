@@ -5,6 +5,7 @@ import { inferFields } from "./infer";
 import { calculateMetrics } from "./calculate";
 import { summarize } from "./summarize";
 import { materializeProduct } from "./materialize";
+import { evaluateQuality } from "./quality";
 
 export const BoePlugin: AnalystPlugin = {
   name: "boe",
@@ -14,6 +15,7 @@ export const BoePlugin: AnalystPlugin = {
     const signals = await extractSignals(ctx.client);
     const inferred = inferFields(signals);
     const calculated = calculateMetrics(inferred);
+    await evaluateQuality(ctx.client, ctx.metaSchema, ctx.runId, calculated);
     const { processed, errors } = await materializeProduct(ctx.client, ctx.metaSchema, ctx.runId, calculated);
     const { summaryCount } = await summarize(ctx.client, ctx.metaSchema, ctx.runId, calculated);
     return { processed, errors, notes: `summaries=${summaryCount}` };
