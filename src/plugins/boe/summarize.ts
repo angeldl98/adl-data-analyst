@@ -1,9 +1,12 @@
 import type { Client } from "pg";
 import { type BoeCalculated } from "./schema";
 
-export async function summarize(client: Client, metaSchema: string, runId: string, rows: BoeCalculated[]) {
-  const summaryTable = "boe_prod.subastas_summary";
-  const riskTable = "boe_prod.subastas_risk";
+export async function summarize(
+  client: Client,
+  summaryTable: string,
+  riskTable: string,
+  rows: BoeCalculated[]
+) {
 
   await client.query("BEGIN");
   try {

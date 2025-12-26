@@ -6,6 +6,7 @@ import { calculateMetrics } from "./calculate";
 import { summarize } from "./summarize";
 import { materializeProduct } from "./materialize";
 import { evaluateQuality } from "./quality";
+import { BOE_HIST_TABLE } from "./schema";
 
 export const BoePlugin: AnalystPlugin = {
   name: "boe",
@@ -26,17 +27,26 @@ export const BoePlugin: AnalystPlugin = {
         row.precio_salida !== undefined &&
         row.url_detalle
     );
-    if (ready.length === 0) {
-      throw new Error("quality_fail: no PRO-ready rows after filtering required fields");
-    }
     const active = ready.filter((row) => row.estado_subasta === "ACTIVA");
-    if (active.length === 0) {
-      throw new Error("quality_fail: no active auctions to publish");
+    const hist = ready.filter((row) => row.estado_subasta !== "ACTIVA");
+
+    if (active.length > 0) {
+      await evaluateQuality(ctx.client, ctx.metaSchema, ctx.runId, active);
     }
 
-    await evaluateQuality(ctx.client, ctx.metaSchema, ctx.runId, active);
-    const { processed, errors } = await materializeProduct(ctx.client, ctx.metaSchema, ctx.runId, active);
-    const { summaryCount } = await summarize(ctx.client, ctx.metaSchema, ctx.runId, active);
-    return { processed, errors, notes: `summaries=${summaryCount}` };
+    const { processed, errors } = await materializeProduct(ctx.client, ctx.metaSchema, ctx.runId, active, hist);
+    const { summaryCount: prodSummaries } = await summarize(
+      ctx.client,
+      "boe_prod.subastas_summary",
+      "boe_prod.subastas_risk",
+      active
+    );
+    const { summaryCount: histSummaries } = await summarize(
+      ctx.client,
+      "boe_hist.subastas_summary",
+      "boe_hist.subastas_risk",
+      hist
+    );
+    return { processed, errors, notes: `summaries_prod=${prodSummaries} summaries_hist=${histSummaries}` };
   }
 };

@@ -1,6 +1,7 @@
 export const BOE_META_SCHEMA = "boe_meta";
 export const BOE_NORM_TABLE = "boe_subastas"; // canonical normalized table (no inference)
 export const BOE_PROD_TABLE = "boe_prod.subastas_pro";
+export const BOE_HIST_TABLE = "boe_hist.subastas";
 
 export type BoeNormRow = {
   subasta_id: number | null;
