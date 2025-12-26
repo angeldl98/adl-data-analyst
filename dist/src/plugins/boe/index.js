@@ -16,9 +16,20 @@ exports.BoePlugin = {
         const signals = await (0, extract_1.extractSignals)(ctx.client);
         const inferred = (0, infer_1.inferFields)(signals);
         const calculated = (0, calculate_1.calculateMetrics)(inferred);
-        await (0, quality_1.evaluateQuality)(ctx.client, ctx.metaSchema, ctx.runId, calculated);
-        const { processed, errors } = await (0, materialize_1.materializeProduct)(ctx.client, ctx.metaSchema, ctx.runId, calculated);
-        const { summaryCount } = await (0, summarize_1.summarize)(ctx.client, ctx.metaSchema, ctx.runId, calculated);
+        const ready = calculated.filter((row) => row.subasta_id &&
+            row.identificador &&
+            row.boe_uid &&
+            row.fecha_inicio &&
+            row.fecha_fin &&
+            row.precio_salida !== null &&
+            row.precio_salida !== undefined &&
+            row.url_detalle);
+        if (ready.length === 0) {
+            throw new Error("quality_fail: no PRO-ready rows after filtering required fields");
+        }
+        await (0, quality_1.evaluateQuality)(ctx.client, ctx.metaSchema, ctx.runId, ready);
+        const { processed, errors } = await (0, materialize_1.materializeProduct)(ctx.client, ctx.metaSchema, ctx.runId, ready);
+        const { summaryCount } = await (0, summarize_1.summarize)(ctx.client, ctx.metaSchema, ctx.runId, ready);
         return { processed, errors, notes: `summaries=${summaryCount}` };
     }
 };
