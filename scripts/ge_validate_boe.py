@@ -27,13 +27,24 @@ NON_NEGATIVE = ["precio_salida", "valor_tasacion", "descuento_pct"]
 
 
 def main() -> int:
+    def emit(output: Dict[str, Any], exit_code: int) -> int:
+        # Always emit structured JSON
+        print(json.dumps(output))
+        return exit_code
+
     try:
         data = json.load(sys.stdin)
     except Exception as exc:  # pragma: no cover
-        print(json.dumps({"success": False, "error": f"invalid_input:{exc}"}))
-        return 1
+        return emit({"success": False, "results": [], "total_records": 0, "error": f"invalid_input:{exc}"}, 1)
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(data if isinstance(data, list) else [])
+    total_records = int(len(df))
+
+    # Ensure all expected columns exist to avoid KeyErrors
+    for col in REQUIRED_NON_NULL + NON_NEGATIVE:
+        if col not in df.columns:
+            df[col] = None
+
     gdf = ge.from_pandas(df)
 
     results: List[Dict[str, Any]] = []
@@ -73,14 +84,27 @@ def main() -> int:
         )
         all_success = all_success and success
 
+    if total_records == 0:
+        # Explicitly mark empty dataset as failure with structured result
+        results.append(
+            {
+                "field": "__dataset__",
+                "total": 0,
+                "failed": 0,
+                "completeness": 0,
+                "notes": "empty_dataset",
+                "success": False,
+            }
+        )
+        all_success = False
+
     output = {
         "success": all_success,
         "results": results,
-        "total_records": int(len(df)),
+        "total_records": total_records,
     }
 
-    print(json.dumps(output))
-    return 0 if all_success else 1
+    return emit(output, 0 if all_success else 1)
 
 
 if __name__ == "__main__":
