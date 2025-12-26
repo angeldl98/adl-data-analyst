@@ -5,6 +5,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.evaluateQuality = evaluateQuality;
 const child_process_1 = require("child_process");
+const fs_1 = __importDefault(require("fs"));
+const crypto_1 = __importDefault(require("crypto"));
 const path_1 = __importDefault(require("path"));
 async function persistReports(client, metaSchema, runId, results) {
     await client.query(`
@@ -32,23 +34,36 @@ async function persistReports(client, metaSchema, runId, results) {
     await client.query(`INSERT INTO ${metaSchema}.quality_reports_boe (run_id, field, total, failed, completeness, notes) VALUES ${placeholders.join(", ")}`, values);
 }
 function runGreatExpectations(rows) {
-    const scriptPath = path_1.default.resolve(process.cwd(), "scripts/ge_validate_boe.py");
-    const result = (0, child_process_1.spawnSync)("python3", [scriptPath], {
+    const pythonBin = process.env.GE_PYTHON || "python3";
+    const cwd = process.cwd();
+    const scriptPath = path_1.default.resolve(cwd, "scripts/ge_validate_boe.py");
+    const stat = fs_1.default.statSync(scriptPath);
+    const buf = fs_1.default.readFileSync(scriptPath);
+    const hash = crypto_1.default.createHash("sha256").update(buf).digest("hex");
+    const firstLine = buf.toString("utf-8").split("\n")[0] ?? "";
+    console.log(`GE_DEBUG_START python=${pythonBin} script=${scriptPath} cwd=${cwd} size=${stat.size} mtimeMs=${stat.mtimeMs} sha256=${hash} first_line=${firstLine}`);
+    const result = (0, child_process_1.spawnSync)(pythonBin, [scriptPath], {
         input: JSON.stringify(rows),
-        encoding: "utf-8"
+        encoding: "utf-8",
+        cwd
     });
     if (result.error) {
         throw new Error(`great_expectations_exec_error:${result.error.message}`);
     }
+    const stdout = result.stdout || "";
+    const stderr = result.stderr || "";
+    console.log(`GE_DEBUG_RESULT status=${result.status ?? "null"} signal=${result.signal ?? "null"} stdout_len=${stdout.length} stderr_len=${stderr.length}`);
     let parsed;
     try {
-        parsed = JSON.parse(result.stdout || "{}");
+        parsed = JSON.parse(stdout || "{}");
     }
     catch (err) {
-        throw new Error(`great_expectations_output_invalid:${err?.message || "parse_error"}`);
+        const tail = stderr ? stderr.slice(-200) : "";
+        throw new Error(`great_expectations_output_invalid:${err?.message || "parse_error"} stdout_len=${stdout.length} stderr_tail=${tail}`);
     }
     if (!parsed.results || !Array.isArray(parsed.results)) {
-        throw new Error("great_expectations_output_missing_results");
+        const tail = stderr ? stderr.slice(-200) : "";
+        throw new Error(`great_expectations_output_missing_results stdout_len=${stdout.length} stderr_tail=${tail} status=${result.status}`);
     }
     const successFlag = result.status === 0 && parsed.success === true;
     if (!successFlag) {

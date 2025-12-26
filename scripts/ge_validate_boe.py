@@ -6,10 +6,13 @@ Exits 0 on success, 1 on any expectation failure.
 """
 import json
 import sys
+import logging
 from typing import Any, Dict, List
 
 import pandas as pd
 import great_expectations as ge
+
+logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
 
 REQUIRED_NON_NULL = [

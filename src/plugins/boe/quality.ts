@@ -1,4 +1,6 @@
 import { spawnSync } from "child_process";
+import fs from "fs";
+import crypto from "crypto";
 import path from "path";
 import type { Client } from "pg";
 import type { BoeCalculated } from "./schema";
@@ -55,25 +57,49 @@ async function persistReports(client: Client, metaSchema: string, runId: string,
 }
 
 function runGreatExpectations(rows: BoeCalculated[]): GeOutput {
-  const scriptPath = path.resolve(process.cwd(), "scripts/ge_validate_boe.py");
-  const result = spawnSync("python3", [scriptPath], {
+  const pythonBin = process.env.GE_PYTHON || "python3";
+  const cwd = process.cwd();
+  const scriptPath = path.resolve(cwd, "scripts/ge_validate_boe.py");
+  const stat = fs.statSync(scriptPath);
+  const buf = fs.readFileSync(scriptPath);
+  const hash = crypto.createHash("sha256").update(buf).digest("hex");
+  const firstLine = buf.toString("utf-8").split("\n")[0] ?? "";
+
+  console.log(
+    `GE_DEBUG_START python=${pythonBin} script=${scriptPath} cwd=${cwd} size=${stat.size} mtimeMs=${stat.mtimeMs} sha256=${hash} first_line=${firstLine}`
+  );
+
+  const result = spawnSync(pythonBin, [scriptPath], {
     input: JSON.stringify(rows),
-    encoding: "utf-8"
+    encoding: "utf-8",
+    cwd
   });
 
   if (result.error) {
     throw new Error(`great_expectations_exec_error:${result.error.message}`);
   }
 
+  const stdout = result.stdout || "";
+  const stderr = result.stderr || "";
+  console.log(
+    `GE_DEBUG_RESULT status=${result.status ?? "null"} signal=${result.signal ?? "null"} stdout_len=${stdout.length} stderr_len=${stderr.length}`
+  );
+
   let parsed: GeOutput;
   try {
-    parsed = JSON.parse(result.stdout || "{}");
+    parsed = JSON.parse(stdout || "{}");
   } catch (err: any) {
-    throw new Error(`great_expectations_output_invalid:${err?.message || "parse_error"}`);
+    const tail = stderr ? stderr.slice(-200) : "";
+    throw new Error(
+      `great_expectations_output_invalid:${err?.message || "parse_error"} stdout_len=${stdout.length} stderr_tail=${tail}`
+    );
   }
 
   if (!parsed.results || !Array.isArray(parsed.results)) {
-    throw new Error("great_expectations_output_missing_results");
+    const tail = stderr ? stderr.slice(-200) : "";
+    throw new Error(
+      `great_expectations_output_missing_results stdout_len=${stdout.length} stderr_tail=${tail} status=${result.status}`
+    );
   }
 
   const successFlag = result.status === 0 && parsed.success === true;
