@@ -21,9 +21,9 @@ type GeOutput = {
 };
 
 async function persistReports(client: Client, metaSchema: string, runId: string, results: GeRowResult[]) {
+  await client.query(`CREATE SCHEMA IF NOT EXISTS ${metaSchema}`);
   await client.query(
     `
-      CREATE SCHEMA IF NOT EXISTS ${metaSchema};
       CREATE TABLE IF NOT EXISTS ${metaSchema}.quality_reports_boe (
         run_id TEXT,
         field TEXT,
@@ -32,11 +32,10 @@ async function persistReports(client: Client, metaSchema: string, runId: string,
         completeness NUMERIC,
         notes TEXT,
         created_at TIMESTAMPTZ DEFAULT now()
-      );
-      DELETE FROM ${metaSchema}.quality_reports_boe WHERE run_id = $1;
-    `,
-    [runId]
+      )
+    `
   );
+  await client.query(`DELETE FROM ${metaSchema}.quality_reports_boe WHERE run_id = $1`, [runId]);
 
   if (results.length === 0) return;
 
