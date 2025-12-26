@@ -48,7 +48,10 @@ def main() -> int:
         if col not in df.columns:
             df[col] = None
 
-    gdf = ge.from_pandas(df)
+    try:
+        gdf = ge.from_pandas(df)
+    except Exception as exc:
+        return emit({"success": False, "results": [], "total_records": total_records, "error": f"ge_init:{exc}"}, 1)
 
     results: List[Dict[str, Any]] = []
     all_success = True
