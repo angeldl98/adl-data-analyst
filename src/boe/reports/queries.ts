@@ -20,10 +20,40 @@ export async function fetchSubscribersByProvince(client: PoolClient, province: s
 
 export async function fetchOpportunities(
   client: PoolClient,
-  province: string,
+  province: string | null,
   topN: number,
-  minDiscount: number
+  minDiscount: number,
+  criteria: "A" | "B" | "C"
 ): Promise<Opportunity[]> {
+  const filters: string[] = [];
+  const params: any[] = [];
+
+  if (province) {
+    params.push(province);
+    filters.push(`provincia = $${params.length}`);
+  }
+
+  filters.push(`fecha_fin >= now()`);
+  filters.push(`fecha_fin <= now() + interval '30 days'`);
+
+  if (criteria === "A" || criteria === "B") {
+    params.push(minDiscount);
+    filters.push(`(1 - precio_salida / NULLIF(valor_tasacion, 0)) * 100 >= $${params.length}`);
+  }
+
+  if (criteria !== "C") {
+    filters.push(`valor_tasacion IS NOT NULL`);
+    filters.push(`precio_salida IS NOT NULL`);
+    filters.push(`valor_tasacion > 0`);
+  }
+
+  const whereSql = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+
+  const orderSql =
+    criteria === "C"
+      ? "ORDER BY valor_tasacion DESC NULLS LAST, fecha_fin ASC NULLS LAST"
+      : "ORDER BY discount_pct DESC NULLS LAST, fecha_fin ASC NULLS LAST";
+
   const res = await client.query(
     `
       SELECT
@@ -34,17 +64,15 @@ export async function fetchOpportunities(
         valor_tasacion AS valor,
         (1 - precio_salida / NULLIF(valor_tasacion, 0)) * 100 AS discount_pct,
         fecha_fin AS deadline,
-        url_detalle AS url
+        url_detalle AS url,
+        tipo_bien,
+        descripcion_bien
       FROM boe_prod.subastas_pro
-      WHERE provincia = $1
-        AND valor_tasacion IS NOT NULL
-        AND valor_tasacion > 0
-        AND precio_salida IS NOT NULL
-        AND (1 - precio_salida / NULLIF(valor_tasacion, 0)) * 100 >= $2
-      ORDER BY discount_pct DESC NULLS LAST, fecha_fin ASC NULLS LAST
-      LIMIT $3
+      ${whereSql}
+      ${orderSql}
+      LIMIT $${params.length + 1}
     `,
-    [province, minDiscount, topN]
+    [...params, topN]
   );
   return res.rows.map((r) => ({
     ...r,

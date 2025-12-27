@@ -62,16 +62,25 @@ async function insertReport(
   return { reports: 1, items: items.length };
 }
 
-function weekPath(base: string): string {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const onejan = new Date(Date.UTC(year, 0, 1));
-  const week = Math.ceil(((now.getTime() - onejan.getTime()) / 86400000 + onejan.getUTCDay() + 1) / 7);
-  return path.join(base, `${year}-${String(week).padStart(2, "0")}`);
+function periodPath(base: string, periodStart: Date): string {
+  const year = periodStart.getUTCFullYear();
+  const month = String(periodStart.getUTCMonth() + 1).padStart(2, "0");
+  return path.join(base, `${year}-${month}`);
 }
 
 function toCsv(items: Opportunity[]): string {
-  const headers = ["subasta_id", "provincia", "municipio", "precio", "valor", "discount_pct", "deadline", "url"];
+  const headers = [
+    "subasta_id",
+    "provincia",
+    "municipio",
+    "precio",
+    "valor",
+    "discount_pct",
+    "deadline",
+    "url",
+    "semaforo",
+    "criterio_usado"
+  ];
   const rows = items.map((i) =>
     [
       i.subasta_id,
@@ -81,7 +90,9 @@ function toCsv(items: Opportunity[]): string {
       i.valor ?? "",
       i.discount_pct?.toFixed(2) ?? "",
       i.deadline ? i.deadline.toISOString().slice(0, 10) : "",
-      i.url || ""
+      i.url || "",
+      i.semaforo || "",
+      i.criterio_usado || ""
     ].join(",")
   );
   return [headers.join(","), ...rows].join("\n");
@@ -89,7 +100,11 @@ function toCsv(items: Opportunity[]): string {
 
 async function main() {
   const topN = envInt("BOE_REPORT_TOPN", 20);
-  const minDiscount = envInt("BOE_REPORT_MIN_DISCOUNT", 30);
+  const minDiscount = envInt("BOE_REPORT_MIN_DISCOUNT", 20);
+  const fallbackMinDiscount = envInt("BOE_REPORT_FALLBACK_MIN_DISCOUNT", 0);
+  const minItems = envInt("BOE_REPORT_MIN_ITEMS", 15);
+  const scope = process.env.BOE_REPORT_SCOPE === "province" ? "province" : "all";
+  const targetProvince = process.env.BOE_REPORT_TARGET_PROVINCE || "Madrid";
   const outputDir = process.env.BOE_REPORT_OUTPUT_DIR || "/opt/adl-suite/data/reports/boe";
   const dryRun = envBool("BOE_REPORT_DRY_RUN", true);
   const runId = uuidv4();
@@ -108,9 +123,16 @@ async function main() {
 
   try {
     await ensureReportSchema(client);
-    const provinces = await fetchActiveProvinces(client);
-    const periodEnd = new Date();
-    const periodStart = new Date(periodEnd.getTime() - 6 * 86400000);
+    const provinces =
+      scope === "all"
+        ? ["ALL"]
+        : scope === "province"
+          ? [targetProvince]
+          : await fetchActiveProvinces(client);
+
+    const now = new Date();
+    const periodStart = now;
+    const periodEnd = new Date(now.getTime() + 30 * 86400000);
 
     const mailCfg = {
       host: process.env.SMTP_HOST,
@@ -122,26 +144,45 @@ async function main() {
     };
 
     for (const province of provinces) {
-      const items = await fetchOpportunities(client, province, topN, minDiscount);
-      const ctx: ReportContext = { province, periodStart, periodEnd, topN, minDiscount, runId };
-      const targetDir = weekPath(path.join(outputDir));
-      const pdfPath = await generatePdf(ctx, items, targetDir);
+      const selection = await selectItems(
+        client,
+        province === "ALL" ? null : province,
+        topN,
+        minDiscount,
+        minItems,
+        fallbackMinDiscount
+      );
+      const ctx: ReportContext = {
+        province,
+        periodStart,
+        periodEnd,
+        topN,
+        minDiscount: selection.usedMinDiscount,
+        runId,
+        criterio: selection.criterio
+      };
+      const targetDir = periodPath(path.join(outputDir), periodStart);
+      const pdfPath = await generatePdf(ctx, selection.items, targetDir);
       const csvPath = path.join(targetDir, `${province}.csv`);
-      await fs.writeFile(csvPath, toCsv(items));
+      await fs.writeFile(csvPath, toCsv(selection.items));
 
-      const counts = await insertReport(client, ctx, pdfPath, csvPath, items);
+      const counts = await insertReport(client, ctx, pdfPath, csvPath, selection.items);
       totalReports += counts.reports;
       totalItems += counts.items;
 
-      const subs = await fetchSubscribersByProvince(client, province);
-      const subject = `Informe semanal BOE - ${province}`;
-      const text = `Informe semanal de oportunidades BOE para ${province} (${periodStart.toISOString().slice(0, 10)} a ${periodEnd
+      const subs = province === "ALL" ? [] : await fetchSubscribersByProvince(client, province);
+      const subject = `Informe mensual BOE - ${province}`;
+      const text = `Informe mensual de oportunidades BOE para ${province} (${periodStart.toISOString().slice(0, 10)} a ${periodEnd
         .toISOString()
         .slice(0, 10)}). Adjuntamos PDF.`;
       await sendReportEmail(mailCfg, subs, subject, text, pdfPath);
+
+      printSummary(ctx, pdfPath, csvPath, selection.items);
     }
 
-    console.log(`RUN_OK | provinces=${provinces.length} | reports=${totalReports} | items=${totalItems}`);
+    console.log(
+      `RUN_OK | period=rolling_30d | scope=${scope} | provinces=${provinces.length} | reports=${totalReports} | items=${totalItems}`
+    );
     process.exit(0);
   } catch (err: any) {
     console.error("RUN_FAIL", err?.message || err);
@@ -156,4 +197,77 @@ main().catch((err) => {
   console.error("RUN_FAIL", err?.message || err);
   process.exit(1);
 });
+
+type SelectionResult = { items: Opportunity[]; criterio: "A" | "B" | "C"; usedMinDiscount: number };
+
+async function selectItems(
+  client: any,
+  province: string | null,
+  topN: number,
+  minDiscount: number,
+  minItems: number,
+  fallbackMinDiscount: number
+): Promise<SelectionResult> {
+  let items = await fetchOpportunities(client, province, topN, minDiscount, "A");
+  if (items.length >= minItems) {
+    annotate(items, "A");
+    return { items, criterio: "A", usedMinDiscount: minDiscount };
+  }
+
+  items = await fetchOpportunities(client, province, topN, fallbackMinDiscount, "B");
+  if (items.length >= minItems) {
+    annotate(items, "B");
+    return { items, criterio: "B", usedMinDiscount: fallbackMinDiscount };
+  }
+
+  items = await fetchOpportunities(client, province, topN, fallbackMinDiscount, "C");
+  annotate(items, "C");
+  return { items, criterio: "C", usedMinDiscount: fallbackMinDiscount };
+}
+
+function annotate(items: Opportunity[], criterio: "A" | "B" | "C") {
+  items.forEach((it) => {
+    it.criterio_usado = criterio;
+    it.semaforo = semaforo(it);
+  });
+}
+
+function semaforo(item: Opportunity): string {
+  const desc = item.discount_pct;
+  const hasValor = item.valor !== null && item.valor !== undefined && !Number.isNaN(item.valor);
+  const tipo = (item.tipo_bien || "").toLowerCase();
+  const texto = ((item.descripcion_bien || "") + " " + (item.url || "")).toLowerCase();
+
+  if (hasValor && desc >= 25) return "VERDE";
+  if ((desc >= 10 && desc < 25) || (!hasValor && item.precio <= 120000)) return "AMBAR";
+  const rare =
+    (!hasValor && desc < 10) ||
+    tipo.includes("suelo") ||
+    tipo.includes("rústico") ||
+    texto.includes("solar") ||
+    texto.includes("rustico");
+  if (rare) return "ROJO";
+  return "AMBAR";
+}
+
+function printSummary(ctx: ReportContext, pdfPath: string, csvPath: string, items: Opportunity[]) {
+  console.log(
+    `SUMMARY | period=${ctx.periodStart.toISOString().slice(0, 10)}..${ctx.periodEnd
+      .toISOString()
+      .slice(0, 10)} | scope=${ctx.province} | criterio=${ctx.criterio} | items=${items.length}`
+  );
+  console.log(`PDF=${pdfPath}`);
+  console.log(`CSV=${csvPath}`);
+  const top = items.slice(0, 10);
+  console.log("TOP10:");
+  top.forEach((it, idx) => {
+    console.log(
+      `${idx + 1}. ${it.subasta_id} ${it.provincia || ""}/${it.municipio || ""} desc=${it.discount_pct?.toFixed(
+        1
+      )}% precio=${it.precio} valor=${it.valor} fin=${it.deadline ? it.deadline.toISOString().slice(0, 10) : ""} semaforo=${
+        it.semaforo
+      }`
+    );
+  });
+}
 
