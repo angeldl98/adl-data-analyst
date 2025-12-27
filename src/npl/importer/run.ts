@@ -6,7 +6,7 @@ import { parseExcels } from "./excelParser";
 import { indexDocuments } from "./documentIndexer";
 
 async function ensureSchema(client: PoolClient) {
-  const sqlPath = path.join(__dirname, "..", "schema.sql");
+  const sqlPath = path.join(process.cwd(), "src", "npl", "schema.sql");
   const sql = fs.readFileSync(sqlPath, "utf8");
   await client.query(sql);
 }
