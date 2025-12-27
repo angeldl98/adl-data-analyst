@@ -9,8 +9,12 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
+    "fs-extra": "^11.2.0",
+    "mime-types": "^2.1.35",
     "pg": "^8.12.0",
-    "uuid": "^9.0.1"
+    "unzipper": "^0.11.6",
+    "uuid": "^9.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",
