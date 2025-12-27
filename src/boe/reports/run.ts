@@ -6,6 +6,7 @@ import { ensureReportSchema, fetchActiveProvinces, fetchOpportunities, fetchSubs
 import { generatePdf } from "./pdf";
 import { sendReportEmail } from "./mailer";
 import { Opportunity, ReportContext } from "./types";
+import { PoolClient } from "pg";
 
 type InsertedCounts = { reports: number; items: number };
 
@@ -123,6 +124,16 @@ async function main() {
 
   try {
     await ensureReportSchema(client);
+    const ready = await hasEnoughDataForReport(client);
+    if (!ready.ready) {
+      console.log(
+        `REPORT_SKIPPED | reason=insufficient_data | eligible_subastas=${ready.eligible} | pdf_signals=${ready.pdfs}`
+      );
+      console.log(
+        `RUN_OK | period=rolling_30d | scope=${scope} | provinces=0 | reports=0 | items=0 | ready=false | eligible=${ready.eligible} | pdfs=${ready.pdfs}`
+      );
+      process.exit(0);
+    }
     const provinces =
       scope === "all"
         ? ["ALL"]
@@ -197,6 +208,20 @@ main().catch((err) => {
   console.error("RUN_FAIL", err?.message || err);
   process.exit(1);
 });
+
+async function hasEnoughDataForReport(client: PoolClient): Promise<{ ready: boolean; eligible: number; pdfs: number }> {
+  const MIN_ELIGIBLE_SUBASTAS = 20;
+  const MIN_PDFS_ANALYZED = 5;
+  const eligibleRes = await client.query(
+    `SELECT count(*)::int AS c FROM boe_prod.subastas_pro WHERE estado_subasta = 'ACTIVA' AND fecha_fin >= now()`
+  );
+  const pdfRes = await client.query(`SELECT count(*)::int AS c FROM boe_aux.pdf_signals WHERE extract_ok = true`);
+  const eligible = eligibleRes.rows?.[0]?.c || 0;
+  const pdfs = pdfRes.rows?.[0]?.c || 0;
+  const ready = eligible >= MIN_ELIGIBLE_SUBASTAS && pdfs >= MIN_PDFS_ANALYZED;
+  console.log(`CHECK_REPORT | eligible_subastas=${eligible} | pdf_signals=${pdfs} | ready=${ready}`);
+  return { ready, eligible, pdfs };
+}
 
 type SelectionResult = { items: Opportunity[]; criterio: "A" | "B" | "C"; usedMinDiscount: number };
 
