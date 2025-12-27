@@ -28,6 +28,17 @@ node dist/src/npl/importer/run.js
 ```
 Logs quedan en stdout (apto para redirección `> /opt/adl-suite/logs/npl-import.log`).
 Si el ZIP cambia, volver a ejecutar; los duplicados por SHA se saltan automáticamente.
+
+Linking (Fase 2)
+----------------
+- Extracción de texto ligera (pdf-parse para PDF; mammoth para DOCX). Sin OCR.
+- Heurísticas deterministas (umbral 60):
+  - ref_catastral exacta: +50
+  - NDG exacto: +30
+  - BMOM/BGAL u otros ids: +20
+  - portfolio (carpeta) cuando ya hay candidato: +10
+  - location dentro de texto (si existe en asset): +10
+- Se enlaza solo si score>=60; se guardan `link_score` y `link_reason`.
 Variables (opcional):
 - `NPL_ZIP_PATH` (por defecto `/mnt/data/dataset fondos.zip`)
 - `NPL_TARGET_DIR` (por defecto `/opt/adl-suite/data/npl/raw/import_YYYYMMDD`)
