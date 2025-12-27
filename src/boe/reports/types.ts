@@ -7,6 +7,10 @@ export type Opportunity = {
   discount_pct: number;
   deadline: Date | null;
   url: string | null;
+  tipo_bien: string | null;
+  descripcion_bien: string | null;
+  semaforo?: string;
+  criterio_usado?: string;
 };
 
 export type ReportContext = {
@@ -16,6 +20,7 @@ export type ReportContext = {
   topN: number;
   minDiscount: number;
   runId: string;
+  criterio: string;
 };
 
 export type Subscriber = {
