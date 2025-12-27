@@ -212,12 +212,22 @@ main().catch((err) => {
 async function hasEnoughDataForReport(client: PoolClient): Promise<{ ready: boolean; eligible: number; pdfs: number }> {
   const MIN_ELIGIBLE_SUBASTAS = 20;
   const MIN_PDFS_ANALYZED = 5;
-  const eligibleRes = await client.query(
-    `SELECT count(*)::int AS c FROM boe_prod.subastas_pro WHERE estado_subasta = 'ACTIVA' AND fecha_fin >= now()`
-  );
-  const pdfRes = await client.query(`SELECT count(*)::int AS c FROM boe_aux.pdf_signals WHERE extract_ok = true`);
-  const eligible = eligibleRes.rows?.[0]?.c || 0;
-  const pdfs = pdfRes.rows?.[0]?.c || 0;
+  let eligible = 0;
+  let pdfs = 0;
+  try {
+    const eligibleRes = await client.query(
+      `SELECT count(*)::int AS c FROM boe_prod.subastas_pro WHERE estado_subasta = 'ACTIVA' AND fecha_fin >= now()`
+    );
+    eligible = eligibleRes.rows?.[0]?.c || 0;
+  } catch (err: any) {
+    console.warn("CHECK_REPORT eligible query failed", err?.message || err);
+  }
+  try {
+    const pdfRes = await client.query(`SELECT count(*)::int AS c FROM boe_aux.pdf_signals WHERE extract_ok = true`);
+    pdfs = pdfRes.rows?.[0]?.c || 0;
+  } catch (err: any) {
+    console.warn("CHECK_REPORT pdf_signals query failed", err?.message || err);
+  }
   const ready = eligible >= MIN_ELIGIBLE_SUBASTAS && pdfs >= MIN_PDFS_ANALYZED;
   console.log(`CHECK_REPORT | eligible_subastas=${eligible} | pdf_signals=${pdfs} | ready=${ready}`);
   return { ready, eligible, pdfs };
