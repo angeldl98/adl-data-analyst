@@ -26,6 +26,8 @@ npm install
 npm run build
 node dist/src/npl/importer/run.js
 ```
+Logs quedan en stdout (apto para redirección `> /opt/adl-suite/logs/npl-import.log`).
+Si el ZIP cambia, volver a ejecutar; los duplicados por SHA se saltan automáticamente.
 Variables (opcional):
 - `NPL_ZIP_PATH` (por defecto `/mnt/data/dataset fondos.zip`)
 - `NPL_TARGET_DIR` (por defecto `/opt/adl-suite/data/npl/raw/import_YYYYMMDD`)
