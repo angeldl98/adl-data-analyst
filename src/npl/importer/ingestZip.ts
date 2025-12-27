@@ -12,7 +12,7 @@ function readEnv(key: string, def: string) {
 }
 
 export async function ingestZip(client: PoolClient): Promise<IngestResult> {
-  const zipPath = readEnv("NPL_ZIP_PATH", "/mnt/data/dataset fondos.zip");
+  const zipPath = readEnv("NPL_ZIP_PATH", "/opt/adl-suite/dataset fondos.zip");
   const targetRoot = readEnv(
     "NPL_TARGET_DIR",
     `/opt/adl-suite/data/npl/raw/import_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`
