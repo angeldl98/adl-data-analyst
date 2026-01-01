@@ -1,9 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.summarize = summarize;
-async function summarize(client, metaSchema, runId, rows) {
-    const summaryTable = "boe_prod.subastas_summary";
-    const riskTable = "boe_prod.subastas_risk";
+async function summarize(client, summaryTable, riskTable, rows) {
     await client.query("BEGIN");
     try {
         await client.query(`

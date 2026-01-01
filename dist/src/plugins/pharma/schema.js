@@ -5,4 +5,4 @@ exports.PHARMA_META_SCHEMA = "pharma_meta";
 exports.PHARMA_NORM_SCHEMA = "pharma_norm";
 exports.PHARMA_PROD_SCHEMA = "pharma_prod";
 exports.PHARMA_HIST_SCHEMA = "pharma_hist";
-exports.PHARMA_NORM_TABLE = `${exports.PHARMA_NORM_SCHEMA}.farmacias`;
+exports.PHARMA_NORM_TABLE = `${exports.PHARMA_NORM_SCHEMA}.medicamentos`;

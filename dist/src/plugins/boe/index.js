@@ -24,16 +24,14 @@ exports.BoePlugin = {
             row.precio_salida !== null &&
             row.precio_salida !== undefined &&
             row.url_detalle);
-        if (ready.length === 0) {
-            throw new Error("quality_fail: no PRO-ready rows after filtering required fields");
-        }
         const active = ready.filter((row) => row.estado_subasta === "ACTIVA");
-        if (active.length === 0) {
-            throw new Error("quality_fail: no active auctions to publish");
+        const hist = ready.filter((row) => row.estado_subasta !== "ACTIVA");
+        if (active.length > 0) {
+            await (0, quality_1.evaluateQuality)(ctx.client, ctx.metaSchema, ctx.runId, active);
         }
-        await (0, quality_1.evaluateQuality)(ctx.client, ctx.metaSchema, ctx.runId, active);
-        const { processed, errors } = await (0, materialize_1.materializeProduct)(ctx.client, ctx.metaSchema, ctx.runId, active);
-        const { summaryCount } = await (0, summarize_1.summarize)(ctx.client, ctx.metaSchema, ctx.runId, active);
-        return { processed, errors, notes: `summaries=${summaryCount}` };
+        const { processed, errors } = await (0, materialize_1.materializeProduct)(ctx.client, ctx.metaSchema, ctx.runId, active, hist);
+        const { summaryCount: prodSummaries } = await (0, summarize_1.summarize)(ctx.client, "boe_prod.subastas_summary", "boe_prod.subastas_risk", active);
+        const { summaryCount: histSummaries } = await (0, summarize_1.summarize)(ctx.client, "boe_hist.subastas_summary", "boe_hist.subastas_risk", hist);
+        return { processed, errors, notes: `summaries_prod=${prodSummaries} summaries_hist=${histSummaries}` };
     }
 };
